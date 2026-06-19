@@ -58,7 +58,7 @@
             font-family: monospace;
             padding: 15px;
             border-radius: 4px;
-            height: 120px;
+            height: 150px;
             overflow-y: auto;
             font-size: 12px;
             white-space: pre-wrap;
@@ -118,7 +118,6 @@
         const reader = new FileReader();
 
         reader.onload = async function(e) {
-            // FIXED: Captures data as a clean binary string payload to satisfy esptool-js requirements
             const firmwareBinaryString = e.target.result;
             let device = null;
             let transport = null;
@@ -129,12 +128,15 @@
                 customTerminal.clean();
                 customTerminal.writeLine("Opening serial connection dialog...");
 
+                // Select the COM port
                 device = await navigator.serial.requestPort({});
                 transport = new Transport(device, true);
                 
+                // Stable dual-speed architecture initialization
                 esploader = new ESPLoader({
                     transport: transport,
-                    baudrate: 115200,
+                    baudrate: 921600, 
+                    romBaudrate: 115200, 
                     terminal: customTerminal
                 });
 
@@ -142,6 +144,7 @@
                 const chipName = await esploader.main();
                 customTerminal.writeLine(`Detected Architecture: ${chipName}`);
 
+                // Show progress bar
                 progressContainer.style.display = 'block';
                 progressFill.style.width = '0%';
                 progressFill.innerHTML = '0%';
@@ -149,12 +152,12 @@
                 const flashOptions = {
                     fileArray: [{
                         data: firmwareBinaryString,
-                        address: 0x10000 
+                        address: 0x10000 // Standard Arduino app offset partition
                     }],
                     flashSize: "4MB",
                     flashMode: "dio",
                     flashFreq: "40m",
-                    eraseAll: false,
+                    eraseAll: true, // Wipes the broken boot loop memory cleanly
                     compress: true,
                     reportProgress: (fileIndex, written, total) => {
                         const percent = Math.floor((written / total) * 100);
@@ -163,7 +166,7 @@
                     }
                 };
 
-                customTerminal.writeLine("Writing binary data to flash memory block...");
+                customTerminal.writeLine("Erasing broken loop memory & writing fresh binary...");
                 await esploader.writeFlash(flashOptions);
                 
                 customTerminal.writeLine("\nFlashing Complete! Rebooting hardware...");
@@ -171,6 +174,7 @@
 
             } catch (err) {
                 customTerminal.writeLine(`\n[Execution Error]: ${err.message}`);
+                customTerminal.writeLine("\nTIP: Make sure you performed the BOOT button combo on the chip before flashing!");
             } finally {
                 flashBtn.disabled = false;
                 if (transport) {
@@ -179,7 +183,6 @@
             }
         };
 
-        // FIXED: Switched from readAsArrayBuffer to readAsBinaryString
         reader.readAsBinaryString(file);
     };
 </script>
