@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Firmware Uploader</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            max-width: 400px;
+            width: 100%;
+        }
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        input[type="submit"] {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+        }
+        input[type="submit"]:hover {
+            background-color: #0056b3;
+        }
+        #progress-container {
+            margin-top: 20px;
+            display: none;
+        }
+        #progress-bar {
+            width: 100%;
+            background-color: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        #progress-fill {
+            width: 0%;
+            height: 20px;
+            background-color: #28a745;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+            font-size: 14px;
+            transition: width 0.1s ease;
+        }
+        #status {
+            margin-top: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>ESP32 OTA Flasher</h2>
+    <form id="uploadForm">
+        <div class="form-group">
+            <label for="ipAddress">ESP32 IP Address:</label>
+            <input type="text" id="ipAddress" placeholder="e.g., 192.168.1.50" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="firmwareFile">Select Firmware (.bin):</label>
+            <input type="file" id="firmwareFile" accept=".bin" required>
+        </div>
+        
+        <input type="submit" value="Upload Firmware">
+    </form>
+
+    <div id="progress-container">
+        <label>Upload Progress:</label>
+        <div id="progress-bar">
+            <div id="progress-fill">0%</div>
+        </div>
+    </div>
+
+    <div id="status"></div>
+</div>
+
+<script>
+    document.getElementById('uploadForm').onsubmit = function(e) {
+        e.preventDefault();
+
+        const ip = document.getElementById('ipAddress').value.trim();
+        const fileInput = document.getElementById('firmwareFile');
+        const statusDiv = document.getElementById('status');
+        const progressContainer = document.getElementById('progress-container');
+        const progressFill = document.getElementById('progress-fill');
+
+        if (fileInput.files.length === 0) {
+            statusDiv.innerHTML = "<span style='color: red;'>Please select a file first.</span>";
+            return;
+        }
+
+        // Clean up IP input (remove trailing slashes or http:// if user entered them)
+        let cleanIP = ip.replace(/^(https?:\/\/)?/, "").replace(/\/$/, "");
+
+        const formData = new FormData();
+        // 'update' matches the standard parameter expected by the ESP32 Update library
+        formData.append('update', fileInput.files[0]);
+
+        const xhr = new XMLHttpRequest();
+        
+        // Target the standard /update endpoint on the target board
+        xhr.open('POST', `http://${cleanIP}/update`, true);
+
+        // Track upload progress
+        progressContainer.style.display = 'block';
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                const percentage = Math.floor((e.loaded / e.total) * 100);
+                progressFill.style.width = percentage + '%';
+                progressFill.innerHTML = percentage + '%';
+            }
+        };
+
+        // Track request completion status
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                statusDiv.innerHTML = "<span style='color: green;'>Success! Board is flashing and rebooting.</span>";
+            } else {
+                statusDiv.innerHTML = `<span style='color: red;'>Error ${xhr.status}: Upload failed.</span>`;
+            }
+        };
+
+        xhr.onerror = function() {
+            statusDiv.innerHTML = "<span style='color: red;'>Network error. Check IP address and connection.</span>";
+        };
+
+        statusDiv.innerHTML = "Uploading...";
+        xhr.send(formData);
+    };
+</script>
+
+</body>
+</html>
