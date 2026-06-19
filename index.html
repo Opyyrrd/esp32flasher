@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wireless ESP32 Wi-Fi Flasher</title>
+    <title>ESP32 USB Web Flasher</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -17,24 +17,14 @@
             background: #2a2a35;
             padding: 30px;
             border-radius: 8px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-            max-width: 400px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+            max-width: 450px;
             width: 100%;
         }
-        h2 { margin-top: 0; color: #00adb5; }
-        .form-group { margin-bottom: 20px; text-align: left; }
-        label { display: block; margin-bottom: 8px; font-weight: bold; color: #ccc; }
-        input[type="text"], input[type="file"] {
-            width: 100%;
-            padding: 10px;
-            box-sizing: border-box;
-            border: 1px solid #444;
-            background-color: #393e46;
-            color: white;
-            border-radius: 4px;
-        }
-        input[type="submit"] {
-            background-color: #28a745;
+        h2 { margin-top: 0; color: #00adb5; text-align: center; }
+        p { font-size: 14px; color: #ccc; text-align: center; line-height: 1.4; }
+        .btn {
+            background-color: #00adb5;
             color: white;
             border: none;
             padding: 12px 20px;
@@ -43,84 +33,158 @@
             width: 100%;
             font-size: 16px;
             font-weight: bold;
+            margin-top: 15px;
         }
-        input[type="submit"]:hover { background-color: #218838; }
-        #progress-container { margin-top: 20px; display: none; }
+        .btn:hover { background-color: #007a80; }
+        .btn:disabled { background-color: #555; cursor: not-allowed; }
+        .form-group { margin-top: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; color: #ccc; }
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            background: #393e46;
+            color: white;
+            border: 1px solid #444;
+            border-radius: 4px;
+        }
+        #progress-container { margin-top: 25px; display: none; }
         #progress-bar { width: 100%; background-color: #444; border-radius: 4px; overflow: hidden; }
-        #progress-fill { width: 0%; height: 20px; background-color: #00adb5; text-align: center; color: white; line-height: 20px; font-size: 14px; }
-        #status { margin-top: 15px; font-weight: bold; text-align: center; }
+        #progress-fill { width: 0%; height: 22px; background-color: #28a745; text-align: center; color: white; line-height: 22px; font-size: 14px; font-weight: bold; }
+        .terminal {
+            margin-top: 20px;
+            background: #111;
+            color: #00ff00;
+            font-family: monospace;
+            padding: 15px;
+            border-radius: 4px;
+            height: 120px;
+            overflow-y: auto;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <h2>Wireless Wi-Fi Flasher</h2>
-    <form id="uploadForm">
-        <div class="form-group">
-            <label for="ipAddress">ESP32 IP Address:</label>
-            <input type="text" id="ipAddress" placeholder="e.g., 192.168.1.50" required>
-        </div>
-        
-        <div class="form-group">
-            <label for="firmwareFile">Select Firmware (.bin):</label>
-            <input type="file" id="firmwareFile" accept=".bin" required>
-        </div>
-        
-        <input type="submit" value="Broadcast Flash Wirelessly">
-    </form>
+    <h2>USB Firmware Flasher</h2>
+    <p>Connect your ESP32 to your computer via USB, select your firmware binary, and flash it directly.</p>
+
+    <div class="form-group">
+        <label>1. Select Firmware Binary:</label>
+        <input type="file" id="firmwareFile" accept=".bin">
+    </div>
+
+    <button id="flashBtn" class="btn">2. Connect & Flash Device</button>
 
     <div id="progress-container">
-        <label>Upload Progress:</label>
+        <label>Flashing Progress:</label>
         <div id="progress-bar">
             <div id="progress-fill">0%</div>
         </div>
     </div>
 
-    <div id="status"></div>
+    <div class="terminal" id="termLog">System Status: Ready. Plug in your ESP32.</div>
 </div>
 
-<script>
-    document.getElementById('uploadForm').onsubmit = function(e) {
-        e.preventDefault();
+<script type="module">
+    import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.5.7/bundle.js";
 
-        const ip = document.getElementById('ipAddress').value.trim();
-        const fileInput = document.getElementById('firmwareFile');
-        const statusDiv = document.getElementById('status');
-        const progressContainer = document.getElementById('progress-container');
-        const progressFill = document.getElementById('progress-fill');
+    const flashBtn = document.getElementById('flashBtn');
+    const fileInput = document.getElementById('firmwareFile');
+    const termLog = document.getElementById('termLog');
+    const progressContainer = document.getElementById('progress-container');
+    const progressFill = document.getElementById('progress-fill');
 
-        // Clean up IP mapping
-        let cleanIP = ip.replace(/^(https?:\/\/)?/, "").replace(/\/$/, "");
+    // Test for browser compatibility
+    if (!('serial' in navigator)) {
+        termLog.innerHTML = "ERROR: Your browser does not support Web Serial. Please use Google Chrome or Microsoft Edge.";
+        flashBtn.disabled = true;
+    }
 
-        const formData = new FormData();
-        formData.append('update', fileInput.files[0]);
+    // Custom logger helper for the underlying flasher utility
+    const customTerminal = {
+        clean: () => { termLog.innerHTML = ""; },
+        writeLine: (data) => { termLog.innerHTML += data + "\n"; termLog.scrollTop = termLog.scrollHeight; },
+        write: (data) => { termLog.innerHTML += data; termLog.scrollTop = termLog.scrollHeight; }
+    };
 
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `http://${cleanIP}/update`, true);
+    flashBtn.onclick = async () => {
+        if (fileInput.files.length === 0) {
+            alert("Please select a valid .bin firmware file first!");
+            return;
+        }
 
-        progressContainer.style.display = 'block';
-        xhr.upload.onprogress = function(e) {
-            if (e.lengthComputable) {
-                const percentage = Math.floor((e.loaded / e.total) * 100);
-                progressFill.style.width = percentage + '%';
-                progressFill.innerHTML = percentage + '%';
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+
+        reader.onload = async function(e) {
+            const firmwareArrayBuffer = new Uint8Array(e.target.result);
+            let device = null;
+            let transport = null;
+            let esploader = null;
+
+            try {
+                flashBtn.disabled = true;
+                customTerminal.clean();
+                customTerminal.writeLine("Opening serial connection dialog...");
+
+                // Open the browser window to pick the COM port
+                device = await navigator.serial.requestPort({});
+                transport = new Transport(device, true);
+                
+                // Initialize the bootloader connection environment
+                esploader = new ESPLoader({
+                    transport: transport,
+                    baudrate: 115200,
+                    terminal: customTerminal
+                });
+
+                customTerminal.writeLine("Connecting to chip... (If stuck, hold the BOOT button on the board)");
+                const chipName = await esploader.main();
+                customTerminal.writeLine(`Detected Architecture: ${chipName}`);
+
+                // Open up the progress monitor UI element
+                progressContainer.style.display = 'block';
+                progressFill.style.width = '0%';
+                progressFill.innerHTML = '0%';
+
+                // Configure flash layout settings
+                const flashOptions = {
+                    fileArray: [{
+                        data: firmwareArrayBuffer,
+                        address: 0x10000 // Standard factory app partition offset for Arduino ESP32 builds
+                    }],
+                    flashSize: "4MB",
+                    flashMode: "dio",
+                    flashFreq: "40m",
+                    eraseAll: false,
+                    compress: true,
+                    reportProgress: (fileIndex, written, total) => {
+                        const percent = Math.floor((written / total) * 100);
+                        progressFill.style.width = percent + '%';
+                        progressFill.innerHTML = percent + '%';
+                    }
+                };
+
+                customTerminal.writeLine("Writing binary data to flash memory block...");
+                await esploader.writeFlash(flashOptions);
+                
+                customTerminal.writeLine("\nFlashing Complete! Rebooting hardware...");
+                await esploader.after("hard_reset");
+
+            } catch (err) {
+                customTerminal.writeLine(`\n[Execution Error]: ${err.message}`);
+            } finally {
+                flashBtn.disabled = false;
+                if (transport) {
+                    await transport.disconnect();
+                }
             }
         };
 
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                statusDiv.innerHTML = "<span style='color: #28a745;'>Success! Firmware sent. Board is rebooting.</span>";
-            } else {
-                statusDiv.innerHTML = `<span style='color: #ff2e63;'>Error ${xhr.status}: Flash failed.</span>`;
-            }
-        };
-
-        xhr.onerror = function() {
-            statusDiv.innerHTML = "<span style='color: #ff2e63;'>Network error. Ensure the ESP32 is powered on and on your Wi-Fi network.</span>";
-        };
-
-        statusDiv.innerHTML = "Streaming firmware over Wi-Fi...";
-        xhr.send(formData);
+        reader.readAsArrayBuffer(file);
     };
 </script>
 
