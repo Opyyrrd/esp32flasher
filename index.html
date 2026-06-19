@@ -97,13 +97,11 @@
     const progressContainer = document.getElementById('progress-container');
     const progressFill = document.getElementById('progress-fill');
 
-    // Test for browser compatibility
     if (!('serial' in navigator)) {
         termLog.innerHTML = "ERROR: Your browser does not support Web Serial. Please use Google Chrome or Microsoft Edge.";
         flashBtn.disabled = true;
     }
 
-    // Custom logger helper for the underlying flasher utility
     const customTerminal = {
         clean: () => { termLog.innerHTML = ""; },
         writeLine: (data) => { termLog.innerHTML += data + "\n"; termLog.scrollTop = termLog.scrollHeight; },
@@ -120,7 +118,8 @@
         const reader = new FileReader();
 
         reader.onload = async function(e) {
-            const firmwareArrayBuffer = new Uint8Array(e.target.result);
+            // FIXED: Captures data as a clean binary string payload to satisfy esptool-js requirements
+            const firmwareBinaryString = e.target.result;
             let device = null;
             let transport = null;
             let esploader = null;
@@ -130,11 +129,9 @@
                 customTerminal.clean();
                 customTerminal.writeLine("Opening serial connection dialog...");
 
-                // Open the browser window to pick the COM port
                 device = await navigator.serial.requestPort({});
                 transport = new Transport(device, true);
                 
-                // Initialize the bootloader connection environment
                 esploader = new ESPLoader({
                     transport: transport,
                     baudrate: 115200,
@@ -145,16 +142,14 @@
                 const chipName = await esploader.main();
                 customTerminal.writeLine(`Detected Architecture: ${chipName}`);
 
-                // Open up the progress monitor UI element
                 progressContainer.style.display = 'block';
                 progressFill.style.width = '0%';
                 progressFill.innerHTML = '0%';
 
-                // Configure flash layout settings
                 const flashOptions = {
                     fileArray: [{
-                        data: firmwareArrayBuffer,
-                        address: 0x10000 // Standard factory app partition offset for Arduino ESP32 builds
+                        data: firmwareBinaryString,
+                        address: 0x10000 
                     }],
                     flashSize: "4MB",
                     flashMode: "dio",
@@ -184,7 +179,8 @@
             }
         };
 
-        reader.readAsArrayBuffer(file);
+        // FIXED: Switched from readAsArrayBuffer to readAsBinaryString
+        reader.readAsBinaryString(file);
     };
 </script>
 
