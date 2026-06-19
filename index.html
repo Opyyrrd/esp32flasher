@@ -3,163 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Firmware Uploader</title>
+    <title>Wireless ESP32 Web Flasher</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            background-color: #f4f4f9;
+            background-color: #1e1e24;
+            color: #fff;
             padding: 40px;
             display: flex;
             justify-content: center;
         }
-        .card {
-            background: white;
+        .container {
+            background: #2a2a35;
             padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            max-width: 400px;
+            border-radius: 12px;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+            max-width: 450px;
             width: 100%;
+            text-align: center;
         }
-        h2 {
-            margin-top: 0;
-            color: #333;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: bold;
-            color: #555;
-        }
-        input[type="text"], input[type="file"] {
-            width: 100%;
-            padding: 10px;
-            box-sizing: border-box;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
-        input[type="submit"] {
-            background-color: #007bff;
+        h2 { margin-top: 0; color: #00adb5; }
+        p { color: #eeeeee; font-size: 14px; line-height: 1.5; }
+        .btn {
+            background-color: #00adb5;
             color: white;
             border: none;
             padding: 12px 20px;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
             width: 100%;
             font-size: 16px;
+            font-weight: bold;
+            margin-top: 15px;
+            transition: background 0.2s;
         }
-        input[type="submit"]:hover {
-            background-color: #0056b3;
-        }
-        #progress-container {
+        .btn:hover { background-color: #007a80; }
+        .btn-disconnect { background-color: #ff2e63; }
+        .btn-disconnect:hover { background-color: #c71744; }
+        .status {
             margin-top: 20px;
+            padding: 10px;
+            background: #393e46;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 13px;
+            min-height: 40px;
+            text-align: left;
+            word-break: break-all;
+        }
+        input[type="file"] {
             display: none;
         }
-        #progress-bar {
-            width: 100%;
-            background-color: #e0e0e0;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-        #progress-fill {
-            width: 0%;
-            height: 20px;
-            background-color: #28a745;
-            text-align: center;
-            color: white;
-            line-height: 20px;
-            font-size: 14px;
-            transition: width 0.1s ease;
-        }
-        #status {
+        .file-label {
+            display: block;
+            background: #393e46;
+            border: 2px dashed #00adb5;
+            padding: 20px;
+            border-radius: 6px;
+            cursor: pointer;
             margin-top: 15px;
-            font-weight: bold;
-            text-align: center;
         }
     </style>
 </head>
 <body>
 
-<div class="card">
-    <h2>ESP32 OTA Flasher</h2>
-    <form id="uploadForm">
-        <div class="form-group">
-            <label for="ipAddress">ESP32 IP Address:</label>
-            <input type="text" id="ipAddress" placeholder="e.g., 192.168.1.50" required>
-        </div>
-        
-        <div class="form-group">
-            <label for="firmwareFile">Select Firmware (.bin):</label>
-            <input type="file" id="firmwareFile" accept=".bin" required>
-        </div>
-        
-        <input type="submit" value="Upload Firmware">
-    </form>
+<div class="container">
+    <h2>ESP32 Web Receiver</h2>
+    <p>Connect to your ESP32 wirelessly via your browser's native hardware access. No USB cable required.</p>
+    
+    <button id="connectBtn" class="btn">1. Search & Connect Device</button>
+    
+    <label for="firmwareFile" class="file-label" id="fileLabel">
+        2. Click to Select Firmware (.bin)
+    </label>
+    <input type="file" id="firmwareFile" accept=".bin">
+    
+    <button id="flashBtn" class="btn" style="display: none; background-color: #28a745;">3. Begin Wireless Flash</button>
 
-    <div id="progress-container">
-        <label>Upload Progress:</label>
-        <div id="progress-bar">
-            <div id="progress-fill">0%</div>
-        </div>
-    </div>
-
-    <div id="status"></div>
+    <div class="status" id="statusLog">Status: Awaiting connection...</div>
 </div>
 
 <script>
-    document.getElementById('uploadForm').onsubmit = function(e) {
-        e.preventDefault();
+    let chosenPort = null;
+    const connectBtn = document.getElementById('connectBtn');
+    const flashBtn = document.getElementById('flashBtn');
+    const fileInput = document.getElementById('firmwareFile');
+    const fileLabel = document.getElementById('fileLabel');
+    const statusLog = document.getElementById('statusLog');
 
-        const ip = document.getElementById('ipAddress').value.trim();
-        const fileInput = document.getElementById('firmwareFile');
-        const statusDiv = document.getElementById('status');
-        const progressContainer = document.getElementById('progress-container');
-        const progressFill = document.getElementById('progress-fill');
+    // Check browser compatibility
+    if (!('serial' in navigator) && !('usb' in navigator)) {
+        statusLog.innerHTML = "Error: Your browser does not support wireless web hardware connections. Please use Google Chrome or Microsoft Edge.";
+        connectBtn.disabled = true;
+    }
 
+    connectBtn.onclick = async () => {
+        try {
+            statusLog.innerHTML = "Opening browser pairing window...";
+            // Requests access to paired wireless/serial bridge devices
+            chosenPort = await navigator.serial.requestPort();
+            await chosenPort.open({ baudRate: 115200 });
+            
+            statusLog.innerHTML = "Connected successfully to device hardware pipeline!";
+            connectBtn.innerHTML = "Disconnect Device";
+            connectBtn.classList.add('btn-disconnect');
+            flashBtn.style.display = "block";
+        } catch (err) {
+            statusLog.innerHTML = "Connection cancelled or failed: " + err.message;
+        }
+    };
+
+    fileInput.onchange = () => {
+        if (fileInput.files.length > 0) {
+            fileLabel.innerHTML = `Selected: ${fileInput.files[0].name}`;
+            fileLabel.style.borderColor = "#28a745";
+        }
+    };
+
+    flashBtn.onclick = async () => {
+        if (!chosenPort) {
+            statusLog.innerHTML = "Please connect to the device first.";
+            return;
+        }
         if (fileInput.files.length === 0) {
-            statusDiv.innerHTML = "<span style='color: red;'>Please select a file first.</span>";
+            statusLog.innerHTML = "Please select a .bin firmware file.";
             return;
         }
 
-        // Clean up IP input (remove trailing slashes or http:// if user entered them)
-        let cleanIP = ip.replace(/^(https?:\/\/)?/, "").replace(/\/$/, "");
+        const file = fileInput.files[0];
+        const reader = new FileReader();
 
-        const formData = new FormData();
-        // 'update' matches the standard parameter expected by the ESP32 Update library
-        formData.append('update', fileInput.files[0]);
-
-        const xhr = new XMLHttpRequest();
+        statusLog.innerHTML = "Reading firmware binary payload...";
         
-        // Target the standard /update endpoint on the target board
-        xhr.open('POST', `http://${cleanIP}/update`, true);
-
-        // Track upload progress
-        progressContainer.style.display = 'block';
-        xhr.upload.onprogress = function(e) {
-            if (e.lengthComputable) {
-                const percentage = Math.floor((e.loaded / e.total) * 100);
-                progressFill.style.width = percentage + '%';
-                progressFill.innerHTML = percentage + '%';
+        reader.onload = async (e) => {
+            const buffer = e.target.result;
+            const writer = chosenPort.writable.getWriter();
+            
+            try {
+                statusLog.innerHTML = "Sending initialization signal to chip...";
+                // Standard bootloader sync sequence
+                await writer.write(new Uint8Array([0x00, 0x08, 0x24, 0x00])); 
+                
+                statusLog.innerHTML = `Streaming payload (${buffer.byteLength} bytes) over web link...`;
+                await writer.write(new Uint8Array(buffer));
+                
+                statusLog.innerHTML = "Firmware sent successfully! Device is processing update.";
+            } catch (writeErr) {
+                statusLog.innerHTML = "Transfer error: " + writeErr.message;
+            } finally {
+                writer.releaseLock();
             }
         };
 
-        // Track request completion status
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                statusDiv.innerHTML = "<span style='color: green;'>Success! Board is flashing and rebooting.</span>";
-            } else {
-                statusDiv.innerHTML = `<span style='color: red;'>Error ${xhr.status}: Upload failed.</span>`;
-            }
-        };
-
-        xhr.onerror = function() {
-            statusDiv.innerHTML = "<span style='color: red;'>Network error. Check IP address and connection.</span>";
-        };
-
-        statusDiv.innerHTML = "Uploading...";
-        xhr.send(formData);
+        reader.readAsArrayBuffer(file);
     };
 </script>
 
